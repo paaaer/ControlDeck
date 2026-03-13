@@ -1,105 +1,121 @@
-# ControlDeckCore
+# ControlDeck
 
-Firmware for the **ControlDeck** hardware — an ESP32-WROOM-32 based USB volume slider controller.
+A hardware volume mixer — control audio sessions on your PC with physical sliders.
 
-Part of the [ControlDeck](https://github.com/paaaer/ControlDeck) project.
-
-**Hardware: ESP32-WROOM-32 DevKit** (CP2102 USB-UART bridge, Mini-USB)
+Inspired by [deej](https://github.com/omriharel/deej) by Omri Harel. Same hardware concept — potentiometers wired to a microcontroller over USB — rebuilt from scratch with a modern ESP32 controller, wireless OTA firmware updates, and a native Windows desktop app.
 
 ---
 
-## Inspiration
+## What's in this repo
 
-This project is inspired by [deej](https://github.com/omriharel/deej) by Omri Harel — a fantastic open-source hardware volume mixer using physical sliders. ControlDeck uses the same hardware layout concept (potentiometers wired to a microcontroller over USB), but replaces the original Arduino Nano with an **ESP32-WROOM-32** and rewrites both the firmware and PC application from scratch with wireless OTA updates, a cleaner protocol, higher ADC resolution, and a modern cross-platform desktop app.
+| Folder | What it is |
+|--------|------------|
+| [`ControlDeckCore/`](ControlDeckCore/) | ESP32-WROOM-32 firmware (PlatformIO + Arduino) |
+| [`ControlDeck/`](ControlDeck/) | Windows desktop app (C# / .NET 8 / WinForms) |
 
 ---
 
-## Features
+## How it works
 
-- **1–6 analog sliders** — plug potentiometers into ADC1 pins (GPIO 32,33,34,35,36,39), configure in one header file
-- **12-bit resolution** — 4× better than original Arduino-based deej (0–4095 vs 0–1023)
-- **EMA noise filter** — exponential moving average smoothing, tunable alpha
-- **Deadband suppression** — ignores sub-threshold jitter, keeps serial traffic minimal
-- **100 Hz update rate** — low latency, efficient framing
-- **OTA firmware updates** — push new firmware wirelessly via PlatformIO
-- **WiFiManager** — captive portal on first boot, no hardcoded credentials
-- **mDNS** — accessible as `controldeck.local` on your network
-- **Simple protocol** — human-readable, easy to parse, documented
+```
+ [Potentiometer sliders]
+         │
+         │ analog voltage
+         ▼
+ [ESP32-WROOM-32]          ← ControlDeckCore
+         │
+         │ USB serial (CDC2 protocol, 100 Hz)
+         ▼
+ [ControlDeck.exe]         ← ControlDeck
+         │
+         │ Windows Core Audio API
+         ▼
+ [master / mic / chrome.exe / discord.exe ...]
+```
+
+1. Each potentiometer wiper connects to an ADC1 pin on the ESP32
+2. ControlDeckCore reads up to 6 sliders at 100 Hz, filters noise, and streams values over USB serial
+3. ControlDeck receives the stream, maps each slider to an audio target, and sets volume via the Windows Core Audio API
+4. Configuration is done via a system tray icon — double-click to open, assign sliders, save
+
+---
+
+## Hardware
+
+| Component | Details |
+|-----------|---------|
+| Microcontroller | ESP32-WROOM-32 DevKit (NodeMCU-32S, 38-pin) |
+| USB bridge | CP2102 (Silicon Labs) — shows as *CP210x USB to UART Bridge* |
+| Cable | USB Mini-B |
+| Sliders | Up to 6 × 10kΩ linear potentiometer (B10K) |
+
+Slider wiring — GPIO pins safe for analog with WiFi active:
+
+| Slider | GPIO |
+|--------|------|
+| 1 | 32 |
+| 2 | 33 |
+| 3 | 34 |
+| 4 | 35 |
+| 5 | 36 |
+| 6 | 39 |
+
+See [`ControlDeckCore/docs/hardware.md`](ControlDeckCore/docs/hardware.md) for full wiring guide.
 
 ---
 
 ## Quick Start
 
-### Hardware
-See [`docs/hardware.md`](docs/hardware.md) for wiring guide and BOM.
+### Flash the firmware
 
-### Firmware
 ```bash
-# 1. Clone
-git clone https://github.com/paaaer/ControlDeck
-cd ControlDeck/ControlDeckCore
-
-# 2. Install PlatformIO (if needed)
-pip install platformio
-
-# 3. Flash (USB)
-pio run -t upload
-
-# 4. Monitor
-pio device monitor
+cd ControlDeckCore
+pio run -t upload          # requires PlatformIO
+pio device monitor         # verify CDC2 handshake output
 ```
 
-On first boot, connect your phone/laptop to the WiFi AP **"ControlDeckCore"** and enter your network credentials. Future boots connect automatically.
+On first boot the ESP32 opens a WiFi AP called **ControlDeckCore** — connect to it and enter your network credentials for OTA support.
 
-### OTA Update
+### Run the desktop app
+
 ```bash
-pio run -t upload --upload-port controldeck.local
+cd ControlDeck
+dotnet run                 # requires .NET 8 SDK
 ```
 
----
-
-## Configuration
-
-All settings in [`include/config.h`](include/config.h):
-
-| Setting            | Default          | Description                        |
-|--------------------|------------------|------------------------------------|
-| `SLIDER_PINS[]`    | `{32,33,34,35,36,39}` | GPIO pins for sliders (ADC1 only) |
-| `EMA_ALPHA`        | `0.15`           | Smoothing factor (lower = smoother)|
-| `DEADBAND_THRESHOLD` | `8`            | Min change to trigger send         |
-| `SEND_INTERVAL_MS` | `10`             | Send rate (10ms = 100Hz)           |
-| `OTA_PASSWORD`     | `controldeck`    | Change before deploying!           |
-| `MDNS_HOSTNAME`    | `controldeck`    | `controldeck.local`                |
+Or grab the pre-built `ControlDeck.exe` from [Releases](../../releases).
 
 ---
 
 ## Protocol
 
-See [`docs/protocol.md`](docs/protocol.md) for the full wire protocol specification.
+ControlDeckCore and ControlDeck communicate over a simple line-based serial protocol:
 
-Quick summary:
-- Handshake: `CDC2:SLIDERS=4;VERSION=1.0.0;NAME=ControlDeckCore`
-- Data: `V:512|780|0|4095`
-- Commands: `CMD:PING`, `CMD:INFO`
+```
+← CDC2:SLIDERS=4;VERSION=1.0.0;NAME=ControlDeckCore   (handshake on connect)
+← V:512|780|0|4095                                     (data frame, ~100 Hz)
+→ CMD:PING                                             (PC → device)
+← ACK:PONG
+```
+
+Values are 12-bit (0–4095). Full spec in [`ControlDeckCore/docs/protocol.md`](ControlDeckCore/docs/protocol.md).
 
 ---
 
-## Project Structure
+## OTA Firmware Updates
 
+After the first USB flash, all future updates can be pushed wirelessly:
+
+```bash
+cd ControlDeckCore
+pio run -t upload --upload-port controldeck.local
 ```
-ControlDeckCore/
-├── platformio.ini          # Board, framework, dependencies
-├── include/
-│   ├── config.h            # ← All user settings here
-│   ├── sliders.h           # Slider manager interface
-│   ├── protocol.h          # Protocol encoder interface
-│   └── ota.h               # WiFi + OTA interface
-├── src/
-│   ├── main.cpp            # setup() / loop() entry point
-│   ├── sliders.cpp         # ADC reading, EMA, deadband
-│   ├── protocol.cpp        # Frame encoding, command handling
-│   └── ota.cpp             # WiFiManager + ArduinoOTA
-└── docs/
-    ├── protocol.md         # Wire protocol specification
-    └── hardware.md         # Wiring, BOM, pinout
-```
+
+---
+
+## Credits
+
+- [deej](https://github.com/omriharel/deej) by Omri Harel — the original inspiration
+- [NAudio](https://github.com/naudio/NAudio) — Windows audio library used in ControlDeck
+- [PlatformIO](https://platformio.org/) — firmware build system
+- [WiFiManager](https://github.com/tzapu/WiFiManager) — captive portal WiFi provisioning
