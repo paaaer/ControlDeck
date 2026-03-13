@@ -1,10 +1,16 @@
 # ControlDeckCore
 
-Firmware for the **ControlDeck** hardware — an ESP32-C3 Super Mini based volume slider controller.
+Firmware for the **ControlDeck** hardware — an ESP32-WROOM-32 based USB volume slider controller.
 
 Part of the [ControlDeck](https://github.com/paaaer/ControlDeck) project.
 
 **Hardware: ESP32-WROOM-32 DevKit** (CP2102 USB-UART bridge, Mini-USB)
+
+---
+
+## Inspiration
+
+This project is inspired by [deej](https://github.com/omriharel/deej) by Omri Harel — a fantastic open-source hardware volume mixer using physical sliders. ControlDeck uses the same hardware layout concept (potentiometers wired to a microcontroller over USB), but replaces the original Arduino Nano with an **ESP32-WROOM-32** and rewrites both the firmware and PC application from scratch with wireless OTA updates, a cleaner protocol, higher ADC resolution, and a modern cross-platform desktop app.
 
 ---
 
@@ -58,7 +64,7 @@ All settings in [`include/config.h`](include/config.h):
 
 | Setting            | Default          | Description                        |
 |--------------------|------------------|------------------------------------|
-| `SLIDER_PINS[]`    | `{0, 1, 2, 3}`   | GPIO pins for sliders (ADC1 only)  |
+| `SLIDER_PINS[]`    | `{32,33,34,35,36,39}` | GPIO pins for sliders (ADC1 only) |
 | `EMA_ALPHA`        | `0.15`           | Smoothing factor (lower = smoother)|
 | `DEADBAND_THRESHOLD` | `8`            | Min change to trigger send         |
 | `SEND_INTERVAL_MS` | `10`             | Send rate (10ms = 100Hz)           |
