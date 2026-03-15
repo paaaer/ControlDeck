@@ -113,6 +113,9 @@ pio run -t upload --upload-port controldeck.local
 
 ## Screenshots
 
+![ControlDeckCoreCalibration](ScreenShoots/ControlDeckCoreCalibration.jpg)
+
+![ControlDeckCoreSettings](ScreenShoots/ControlDeckCoreSettings.jpg)
 ---
 
 ## Credits
