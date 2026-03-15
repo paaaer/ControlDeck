@@ -2,7 +2,7 @@
 
 A hardware volume mixer — control audio sessions on your PC with physical sliders.
 
-Inspired by [deej](https://github.com/omriharel/deej) by Omri Harel. Same hardware concept — potentiometers wired to a microcontroller over USB — rebuilt from scratch with a modern ESP32 controller, wireless OTA firmware updates, and a native Windows desktop app.
+Inspired by [deej](https://github.com/omriharel/deej) by Omri Harel. Similar hardware concept — potentiometers wired to a microcontroller over USB — rebuilt from scratch with a modern ESP32 controller, wireless OTA firmware updates, and a native Windows desktop app.
 
 ---
 
