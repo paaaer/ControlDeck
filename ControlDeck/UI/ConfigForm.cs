@@ -100,7 +100,7 @@ public sealed class ConfigForm : Form
     // -----------------------------------------------------------------------
     // Public API called from TrayApplicationContext
 
-    public new void Refresh(Handshake? hs, AppConfig cfg)
+    public void Refresh(Handshake? hs, AppConfig cfg)
     {
         _cfg = cfg;
 
