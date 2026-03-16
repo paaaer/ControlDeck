@@ -1,4 +1,5 @@
 #pragma once
+#include "BaudRates.h"
 
 // =============================================================================
 // ControlDeckCore — config.h
@@ -9,7 +10,7 @@
 // Device identity
 // ----------------------------------------------------------------------------
 #define DEVICE_NAME        "ControlDeckCore"
-#define FIRMWARE_VERSION   "1.1.0"
+#define FIRMWARE_VERSION   "1.2.0"
 
 // ----------------------------------------------------------------------------
 // Slider configuration
@@ -36,16 +37,28 @@ static const uint8_t SLIDER_PINS[] = {
 // ADC settings
 // ----------------------------------------------------------------------------
 #define ADC_RESOLUTION      12          // bits (0–4095)
-#define ADC_SAMPLES         16          // oversample per read — more = less noise
+#define ADC_SAMPLES         4           // 4× oversampling — fast reads, noise ~5 LSB
+                                        // (well below deadband; the EMA handles the rest)
 #define ADC_ATTENUATION     ADC_11db    // full 0–3.3V range
-#define ADC_CHANNEL_DELAY_US 500        // delay between channels — reduces crosstalk
+#define ADC_CHANNEL_DELAY_US 200        // µs between channels — discard read pre-settles
+                                        // the S&H cap, so 200µs is plenty
 
-// EMA smoothing alpha (0.0–1.0). Lower = smoother, slower to respond.
-#define EMA_ALPHA           0.05f
+// EMA smoothing alpha (0.0–1.0). Lower = smoother but slower to respond.
+//
+// Latency to 95% of target at 100 Hz:
+//   α=0.05 →  58 samples = 580 ms  ← original
+//   α=0.20 →  13 samples = 130 ms  ← previous
+//   α=0.40 →   5 samples =  50 ms  ← now
+//
+// Noise budget at α=0.40 with 4× oversampling:
+//   σ_raw ≈ 15 LSB  →  σ_avg ≈ 7.5 (÷√4)  →  σ_ema ≈ 3.75 (×√(α/(2-α)))
+//   Deadband=25 requires a ~7σ excursion to false-trigger → negligible.
+#define EMA_ALPHA           0.40f
 
 // Deadband: ignore changes smaller than this (out of 4095).
-// Increase if values wobble at rest.
-#define DEADBAND_THRESHOLD  30
+// Slightly wider than before to absorb the extra noise from less oversampling.
+// Increase toward 35 if any slider wobbles at rest.
+#define DEADBAND_THRESHOLD  25
 
 // ----------------------------------------------------------------------------
 // Calibration defaults
@@ -61,10 +74,19 @@ static const uint8_t SLIDER_PINS[] = {
 // ----------------------------------------------------------------------------
 // Serial protocol
 // ----------------------------------------------------------------------------
-#define SERIAL_BAUD         115200
+#include "BaudRates.h"   // VALID_BAUDS[], VALID_BAUDS_COUNT, DEFAULT_BAUD
+// 921600 baud cuts frame transmission from 2.34 ms → 0.29 ms.
+// USB CDC is virtual serial so the baud has no effect on the physical line,
+// but the ESP32 UART FIFO still drains at this rate before USB packetisation.
+// CP2102 / CH340 / native-USB all support 921600.  If your adapter tops out
+// at 460800 that value works too; 115200 is the safe fallback.
+#define SERIAL_BAUD         DEFAULT_BAUD     // from Shared/BaudRates.h
 #define SEND_INTERVAL_MS    10          // default ~100 Hz — overridden by NVS at runtime
 #define SEND_INTERVAL_MIN_MS 10         // 100 Hz max
 #define SEND_INTERVAL_MAX_MS 100        // 10 Hz min
+// Send a frame at least this often even if nothing changed — keeps the PC
+// in sync on first connect and acts as a lightweight heartbeat.
+#define KEEPALIVE_INTERVAL_MS 200
 
 // ----------------------------------------------------------------------------
 // WiFi & OTA

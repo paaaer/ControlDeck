@@ -14,8 +14,14 @@ public sealed class TrayApplicationContext : ApplicationContext
     private readonly AudioController _audio;
     private          AppConfig      _cfg;
 
-    private ConfigForm? _configForm;
-    private AboutForm?  _aboutForm;
+    private ConfigForm?          _configForm;
+    private AboutForm?           _aboutForm;
+    private ToolStripMenuItem    _statusItem = null!;
+    private volatile bool        _quitting;
+
+    // Per-slider last-sent volume — skip COM call when value hasn't changed enough
+    private readonly float[] _lastVolumes  = new float[16];
+    private const    float   VolumeEpsilon = 0.004f; // ~0.4 % change required
 
     public TrayApplicationContext()
     {
@@ -34,9 +40,10 @@ public sealed class TrayApplicationContext : ApplicationContext
 
         // Device manager
         _device = new DeviceManager(_cfg);
-        _device.Connected      += OnConnected;
-        _device.Disconnected   += OnDisconnected;
-        _device.ValuesReceived += OnValues;
+        _device.Connected         += OnConnected;
+        _device.Disconnected      += OnDisconnected;
+        _device.ValuesReceivedRaw += OnValuesAudio;  // background thread — audio only
+        _device.ValuesReceived    += OnValuesUi;     // UI thread — preview only
         _device.Start();
     }
 
@@ -45,12 +52,14 @@ public sealed class TrayApplicationContext : ApplicationContext
 
     private void OnConnected(Handshake hs)
     {
+        if (_quitting) return;
+        _statusItem.Text = $"{hs.Name}  ·  {hs.Port}  ·  {hs.Sliders} sliders  ·  fw {hs.Version}";
         _tray.Icon = TrayIcon.Make(connected: true);
-        _tray.Text = $"ControlDeck — {hs.Port} · {hs.Sliders} sliders · fw {hs.Version}";
+        _tray.Text = $"ControlDeck — {hs.Name} on {hs.Port} · {hs.Sliders} sliders · fw {hs.Version}";
         _tray.ShowBalloonTip(
             2000,
             "ControlDeck",
-            $"Connected on {hs.Port} ({hs.Sliders} sliders)",
+            $"{hs.Name} connected on {hs.Port} ({hs.Sliders} sliders)",
             ToolTipIcon.Info);
 
         // Ensure config has an entry for every slider
@@ -66,19 +75,31 @@ public sealed class TrayApplicationContext : ApplicationContext
 
     private void OnDisconnected()
     {
+        if (_quitting) return;
+        _statusItem.Text = "Disconnected — searching...";
         _tray.Icon = TrayIcon.Make(connected: false);
         _tray.Text = "ControlDeck — disconnected, searching...";
         _configForm?.Refresh(null, _cfg);
     }
 
-    private void OnValues(float[] values)
+    // Runs on the serial background thread — no UI calls allowed here
+    private void OnValuesAudio(float[] values)
     {
+        if (_quitting) return;
         for (int i = 0; i < values.Length; i++)
         {
+            if (Math.Abs(values[i] - _lastVolumes[i]) < VolumeEpsilon) continue;
+            _lastVolumes[i] = values[i];
             var target = _cfg.GetSliderTarget(i);
             if (target != "unassigned")
                 _audio.SetVolume(target, values[i]);
         }
+    }
+
+    // Runs on the UI thread — UI preview only, no audio calls
+    private void OnValuesUi(float[] values)
+    {
+        if (_quitting) return;
         _configForm?.UpdatePreview(values);
     }
 
@@ -89,8 +110,8 @@ public sealed class TrayApplicationContext : ApplicationContext
     {
         var menu = new ContextMenuStrip();
 
-        var statusItem = new ToolStripMenuItem("Status: searching...") { Enabled = false };
-        menu.Items.Add(statusItem);
+        _statusItem = new ToolStripMenuItem("Searching for device...") { Enabled = false };
+        menu.Items.Add(_statusItem);
         menu.Items.Add(new ToolStripSeparator());
 
         var configItem = new ToolStripMenuItem("Configure...");
@@ -142,13 +163,22 @@ public sealed class TrayApplicationContext : ApplicationContext
 
     private void Quit()
     {
-        _cfg.Save();
-        _device.Stop();
-        _device.Dispose();
-        _audio.Dispose();
-        _tray.Visible = false;
-        _tray.Dispose();
-        Application.Exit();
+        if (_quitting) return;
+        _quitting = true;
+        try
+        {
+            _cfg.Save();
+            _device.Stop();
+            _device.Dispose();
+            _audio.Dispose();
+            _tray.Visible = false;
+            _tray.Dispose();
+        }
+        catch { /* ignore disposal errors — we are exiting regardless */ }
+        finally
+        {
+            Application.Exit();
+        }
     }
 
     protected override void Dispose(bool disposing)

@@ -5,7 +5,7 @@ namespace ControlDeck;
 static class Program
 {
     public const string AppName    = "ControlDeck";
-    public const string AppVersion = "1.0.0";
+    public const string AppVersion = "1.2.0";
 
     [STAThread]
     static void Main()

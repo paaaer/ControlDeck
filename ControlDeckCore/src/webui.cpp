@@ -17,6 +17,7 @@ void WebUI::begin() {
     _server.on("/settings",           [this]() { handleSettings();    });
     _server.on("/settings/save",      [this]() { handleSettingsSave();});
     _server.on("/settings/pollrate",  [this]() { handlePollRate();    });
+    _server.on("/settings/baud",      [this]() { handleBaudSave();    });
     _server.on("/settings/wifi",      [this]() { handleWifiChange();  });
     _server.on("/settings/wifireset", [this]() { handleWifiReset();   });
     _server.begin();
@@ -117,6 +118,7 @@ void WebUI::handleRename() {
 void WebUI::handleSettings() {
     _prefs.begin(NVS_NAMESPACE,true);
     String hostname=_prefs.getString("hostname",MDNS_HOSTNAME);
+    uint32_t baud=_prefs.getUInt("baud",SERIAL_BAUD);
     _prefs.end();
     String json="{";
     json+="\"hostname\":\""+hostname+"\",";
@@ -125,11 +127,26 @@ void WebUI::handleSettings() {
     json+="\"poll_ms\":"+String(g_sendIntervalMs)+",";
     json+="\"poll_min\":"+String(SEND_INTERVAL_MIN_MS)+",";
     json+="\"poll_max\":"+String(SEND_INTERVAL_MAX_MS)+",";
+    json+="\"baud\":"+String(baud)+",";
     json+="\"version\":\"" FIRMWARE_VERSION "\",";
     json+="\"sliders\":"+String(_sliders.count());
     json+="}";
     _server.sendHeader("Access-Control-Allow-Origin","*");
     _server.send(200,"application/json",json);
+}
+
+void WebUI::handleBaudSave() {
+    if (!_server.hasArg("baud")) { _server.send(400,"application/json","{\"error\":\"missing baud\"}"); return; }
+    uint32_t baud=(uint32_t)_server.arg("baud").toInt();
+    bool ok=false;
+    for (uint8_t i=0;i<VALID_BAUDS_COUNT;i++) if(VALID_BAUDS[i]==baud){ok=true;break;}
+    if (!ok) { _server.send(400,"application/json","{\"error\":\"invalid baud\"}"); return; }
+    _prefs.begin(NVS_NAMESPACE,false);
+    _prefs.putUInt("baud",baud);
+    _prefs.end();
+    Serial.printf("[Baud] Saved %u — rebooting\n",baud);
+    _server.send(200,"application/json","{\"ok\":true,\"reboot\":true}");
+    delay(500); ESP.restart();
 }
 
 void WebUI::handleSettingsSave() {
@@ -214,8 +231,9 @@ h1{font-size:20px;font-weight:600;color:#fff;margin-bottom:4px}
 .btn-full{width:100%;padding:10px;border:none;border-radius:6px;font-size:14px;font-weight:600;cursor:pointer;margin-top:8px}
 .field{margin-bottom:16px}
 .field label{display:block;font-size:12px;color:#888;margin-bottom:6px;font-weight:500;text-transform:uppercase;letter-spacing:.05em}
-.field input[type=text]{width:100%;background:#111;border:1px solid #2a2a2a;border-radius:6px;padding:9px 12px;color:#e0e0e0;font-size:14px;outline:none;transition:border-color .15s}
-.field input[type=text]:focus{border-color:#22c47a}
+.field input[type=text],.field select{width:100%;background:#111;border:1px solid #2a2a2a;border-radius:6px;padding:9px 12px;color:#e0e0e0;font-size:14px;outline:none;transition:border-color .15s;appearance:none}
+.field input[type=text]:focus,.field select:focus{border-color:#22c47a}
+.field select{cursor:pointer;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath fill='%23666' d='M6 8L0 0h12z'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 12px center;padding-right:32px}
 .field .hint{font-size:11px;color:#555;margin-top:4px}
 .poll-wrap{display:flex;align-items:center;gap:14px;margin-bottom:10px}
 .poll-wrap input[type=range]{flex:1;accent-color:#22c47a;height:6px;cursor:pointer}
@@ -287,6 +305,21 @@ h1{font-size:20px;font-weight:600;color:#fff;margin-bottom:4px}
     </div>
     <div class="hint" style="margin-bottom:12px">Left = 10 Hz (100 ms) &mdash; Right = 100 Hz (10 ms). Higher = more responsive.</div>
     <button class="btn-full btn-green" onclick="savePollRate()">💾 Save polling rate</button>
+  </div>
+
+  <div class="card">
+    <div class="section-title">Serial baud rate</div>
+    <div class="field">
+      <label>Baud rate</label>
+      <select id="baud-sel">
+)rawhtml";
+    for (uint8_t i=0;i<VALID_BAUDS_COUNT;i++) {
+        h+="        <option value=\""+String(VALID_BAUDS[i])+"\">"+String(VALID_BAUDS[i])+"</option>\n";
+    }
+    h+=R"rawhtml(      </select>
+      <div class="hint">Must match the host-side setting — reboot required</div>
+    </div>
+    <button class="btn-full btn-green" onclick="saveBaud()">💾 Save baud rate &amp; reboot</button>
   </div>
 
   <div class="card">
@@ -468,12 +501,20 @@ function loadSettings(){
     document.getElementById('s-host').textContent=d.hostname+'.local';
     document.getElementById('s-sliders').textContent=d.sliders;
     document.getElementById('hostname').value=d.hostname;
+    document.getElementById('baud-sel').value=String(d.baud);
     const sl=document.getElementById('poll-slider');
     sl.min=10; sl.max=100; sl.step=1;
     const hz=Math.round(1000/d.poll_ms);
     sl.value=hz;
     pollDrag(hz);
   }).catch(()=>toast('Could not load settings',true));
+}
+function saveBaud(){
+  const v=document.getElementById('baud-sel').value;
+  if(!confirm('Save baud rate '+v+' and reboot?')) return;
+  fetch('/settings/baud?baud='+v)
+    .then(r=>r.json()).then(d=>{if(d.ok)toast('✓ Saved — rebooting...');else toast(d.error||'Error',true);})
+    .catch(()=>toast('Device rebooting...'));
 }
 function saveHostname(){
   const v=document.getElementById('hostname').value.trim();
@@ -493,7 +534,7 @@ function wifiReset(){
   fetch('/settings/wifireset',{method:'POST'}).then(()=>toast('WiFi reset — connect to ControlDeckCore AP')).catch(()=>toast('WiFi reset...'));
 }
 
-setInterval(update,200);
+setInterval(update,50);
 update();
 </script>
 </body>

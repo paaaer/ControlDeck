@@ -18,7 +18,7 @@ public sealed class AboutForm : Form
             Dock        = DockStyle.Fill,
             ColumnCount = 1,
             Padding     = new Padding(20),
-            RowCount    = 7,
+            RowCount    = 6,
         };
         Controls.Add(layout);
 
@@ -49,11 +49,6 @@ public sealed class AboutForm : Form
             AutoSize  = true,
             Padding   = new Padding(0, 0, 0, 12),
         });
-
-        // Inspired by
-        layout.Controls.Add(MakeLink(
-            "Inspired by deej by Omri Harel",
-            "https://github.com/omriharel/deej"));
 
         // Source
         layout.Controls.Add(MakeLink(

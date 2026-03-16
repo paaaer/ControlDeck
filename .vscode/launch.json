@@ -1,7 +1,26 @@
 {
-    // Use IntelliSense to learn about possible attributes.
-    // Hover to view descriptions of existing attributes.
-    // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
     "version": "0.2.0",
-    "configurations": []
+    "configurations": [
+        {
+            "name": "ControlDeck (Debug)",
+            "type": "coreclr",
+            "request": "launch",
+            "preLaunchTask": "build",
+            "program": "${workspaceFolder}/ControlDeck/bin/Debug/net8.0-windows/win-x64/ControlDeck.dll",
+            "args": [],
+            "cwd": "${workspaceFolder}/ControlDeck/bin/Debug/net8.0-windows/win-x64",
+            "stopAtEntry": false,
+            "console": "internalConsole",
+            "exceptionOptions": [
+                {
+                    "exceptionCategory": "System.TimeoutException",
+                    "breakMode": "unhandled"
+                },
+                {
+                    "exceptionCategory": "System.OperationCanceledException",
+                    "breakMode": "unhandled"
+                }
+            ]
+        }
+    ]
 }

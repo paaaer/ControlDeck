@@ -8,8 +8,8 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <AssemblyName>ControlDeck</AssemblyName>
     <RootNamespace>ControlDeck</RootNamespace>
-    <Version>1.0.0</Version>
-    <AssemblyVersion>1.0.0.0</AssemblyVersion>
+    <Version>1.2.0</Version>
+    <AssemblyVersion>1.2.0.0</AssemblyVersion>
     <Platforms>x64</Platforms>
 
     <!-- Single-file publish settings -->
@@ -23,6 +23,11 @@
   <ItemGroup>
     <PackageReference Include="NAudio" Version="2.2.1" />
     <PackageReference Include="System.IO.Ports" Version="8.0.0" />
+  </ItemGroup>
+
+  <!-- Shared constants between firmware and PC app -->
+  <ItemGroup>
+    <Compile Include="..\Shared\BaudRates.cs" Link="Shared\BaudRates.cs" />
   </ItemGroup>
 
   <!-- Embed app manifest for high-DPI awareness -->

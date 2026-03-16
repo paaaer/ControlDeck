@@ -72,8 +72,10 @@ public class SliderConfig
 public class DeviceConfig
 {
     /// <summary>"auto" or a specific port name like "COM3"</summary>
-    public string Port { get; set; } = "auto";
-    public int    Baud { get; set; } = 115200;
+    public string Port      { get; set; } = "auto";
+    public int    Baud      { get; set; } = BaudRates.Default;
+    /// <summary>mDNS hostname of the device web UI (default: controldeck.local)</summary>
+    public string WebUiHost { get; set; } = "controldeck.local";
 }
 
 public class UiConfig

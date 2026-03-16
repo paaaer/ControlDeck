@@ -4,7 +4,7 @@
 #include <WebServer.h>
 #include <Preferences.h>
 #include "sliders.h"
-#include "config.h"
+#include "config.h"     // pulls in BaudRates.h → VALID_BAUDS, DEFAULT_BAUD
 
 extern uint32_t g_sendIntervalMs;
 
@@ -30,6 +30,7 @@ private:
     void handleSettings();
     void handleSettingsSave();
     void handlePollRate();
+    void handleBaudSave();
     void handleWifiChange();
     void handleWifiReset();
 

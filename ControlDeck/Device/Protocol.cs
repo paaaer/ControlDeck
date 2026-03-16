@@ -2,9 +2,9 @@ namespace ControlDeck.Device;
 
 /// <summary>
 /// Parsed CDC2 handshake from ControlDeckCore.
-/// Example: CDC2:SLIDERS=4;VERSION=1.0.0;NAME=ControlDeckCore
+/// Example: CDC2:SLIDERS=5;VERSION=1.1.0;NAME=ControlDeckCore;NAMES=Master,Music,Chat,Game,Mic
 /// </summary>
-public record Handshake(int Sliders, string Version, string Name, string Port);
+public record Handshake(int Sliders, string Version, string Name, string[] Names, string Port, int Baud);
 
 /// <summary>
 /// Parses the ControlDeck wire protocol (CDC2).
@@ -18,7 +18,7 @@ public static class Protocol
     /// Try to parse a CDC2 handshake line.
     /// Returns null if the line is not a valid handshake.
     /// </summary>
-    public static Handshake? ParseHandshake(string line, string port)
+    public static Handshake? ParseHandshake(string line, string port, int baud = 921600)
     {
         line = line.Trim();
         if (!line.StartsWith(HandshakePrefix, StringComparison.Ordinal))
@@ -41,7 +41,13 @@ public static class Protocol
         fields.TryGetValue("VERSION", out var version);
         fields.TryGetValue("NAME",    out var name);
 
-        return new Handshake(sliders, version ?? "?", name ?? "?", port);
+        string[] names;
+        if (fields.TryGetValue("NAMES", out var namesStr) && !string.IsNullOrWhiteSpace(namesStr))
+            names = namesStr.Split(',').Select(n => n.Trim()).ToArray();
+        else
+            names = Enumerable.Range(1, sliders).Select(i => $"Slider {i}").ToArray();
+
+        return new Handshake(sliders, version ?? "?", name ?? "?", names, port, baud);
     }
 
     /// <summary>
