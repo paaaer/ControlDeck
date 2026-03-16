@@ -4,7 +4,9 @@ namespace ControlDeck.Device;
 
 /// <summary>
 /// Reads CDC2 frames from a serial port on a background thread.
-/// Raises events which callers must marshal to the UI thread if needed.
+/// Accepts an already-open <see cref="OpenConnection"/> from the Detector so
+/// the port is never closed and reopened between detection and live reading —
+/// eliminating the DTR glitch that resets ESP32 boards.
 /// </summary>
 public sealed class SerialReader : IDisposable
 {
@@ -14,16 +16,19 @@ public sealed class SerialReader : IDisposable
 
     private readonly string     _port;
     private readonly int        _baud;
-    private          SerialPort? _sp;
+    private          SerialPort _sp;
+    private readonly Handshake  _initialHandshake;
     private          Thread?    _thread;
     private volatile bool       _running;
 
-    public bool IsConnected => _running && _sp?.IsOpen == true;
+    public bool IsConnected => _running && _sp.IsOpen;
 
-    public SerialReader(string port, int baud = 921600)
+    public SerialReader(OpenConnection conn)
     {
-        _port = port;
-        _baud = baud;
+        _sp               = conn.Port;
+        _initialHandshake = conn.Handshake;
+        _port             = conn.Handshake.Port;
+        _baud             = conn.Handshake.Baud;
     }
 
     public void Start()
@@ -40,15 +45,15 @@ public sealed class SerialReader : IDisposable
     public void Stop()
     {
         _running = false;
-        // Do NOT close the port here — calling Close() while ReadLine() is active on the
+        // Do NOT close the port here — closing while ReadLine() is active on the
         // background thread throws OperationCanceledException on Windows.
-        // The ReadLoop finally block handles port cleanup when the thread exits naturally
-        // (ReadTimeout is 1 s, so it exits within one tick of _running becoming false).
+        // ReadLoop's finally block closes the port after the thread exits
+        // (ReadTimeout = 1 s, so it exits within one tick of _running → false).
     }
 
     /// <summary>
-    /// Stop the reader and block until the background thread has fully exited
-    /// (and released the COM port). Waits at most <paramref name="timeoutMs"/> ms.
+    /// Stop and block until the background thread has fully exited and released
+    /// the COM port. Safe to call before opening the same port again.
     /// </summary>
     public void StopAndWait(int timeoutMs = 1500)
     {
@@ -64,24 +69,21 @@ public sealed class SerialReader : IDisposable
     {
         try
         {
-            _sp = new SerialPort(_port, _baud)
-            {
-                ReadTimeout  = 1000,
-                WriteTimeout = 1000,
-                NewLine      = "\n",
-                // Prevent toggling DTR/RTS on Open() — many ESP32 boards use
-                // those lines to drive the EN reset circuit, which reboots the
-                // device and makes it unreachable for several seconds.
-                DtrEnable    = false,
-                RtsEnable    = false,
-            };
-            _sp.Open();
-            System.Diagnostics.Debug.WriteLine($"[SerialReader] {_port} @ {_baud}: port opened");
+            // Port is already open — reconfigure timeouts.
+            _sp.ReadTimeout  = 1000;
+            _sp.WriteTimeout = 1000;
+            _sp.NewLine      = "\n";
 
-            // Ask device to re-send handshake immediately
+            System.Diagnostics.Debug.WriteLine(
+                $"[SerialReader] {_port} @ {_baud}: using pre-opened port (provisional={_initialHandshake.Version == "?"})");
+
+            // Fire Connected immediately with whatever the Detector gave us
+            // (may be a provisional handshake if CDC2 was delayed).
+            Connected?.Invoke(_initialHandshake);
+
+            // Request the real handshake — firmware will respond with CDC2:
+            // on its next loop tick and Connected will fire again with full info.
             _sp.Write(Protocol.InfoCommand, 0, Protocol.InfoCommand.Length);
-
-            bool handshakeReceived = false;
 
             while (_running)
             {
@@ -92,46 +94,39 @@ public sealed class SerialReader : IDisposable
                 }
                 catch (TimeoutException)
                 {
-                    System.Diagnostics.Debug.WriteLine($"[SerialReader] {_port}: read timeout (waiting for data)");
-                    continue;   // normal — no data in this window
+                    continue;   // normal — no data in this 1 s window
                 }
                 catch (Exception ex)
                 {
-                    System.Diagnostics.Debug.WriteLine($"[SerialReader] {_port}: read error — {ex.GetType().Name}");
+                    System.Diagnostics.Debug.WriteLine(
+                        $"[SerialReader] {_port}: read error — {ex.GetType().Name}");
                     break;      // port lost
                 }
 
                 if (string.IsNullOrWhiteSpace(line)) continue;
 
-                System.Diagnostics.Debug.WriteLine($"[SerialReader] {_port}: '{line.Trim()}'");
-
-                // Handshake
+                // Handshake re-sent by device (e.g. after CMD:INFO)
                 var hs = Protocol.ParseHandshake(line, _port, _baud);
                 if (hs is not null)
                 {
-                    System.Diagnostics.Debug.WriteLine($"[SerialReader] {_port}: handshake received — {hs.Name}");
-                    handshakeReceived = true;
                     Connected?.Invoke(hs);
                     continue;
                 }
 
                 // Data frame
-                if (handshakeReceived)
-                {
-                    var values = Protocol.ParseFrame(line);
-                    if (values is not null)
-                        ValuesReceived?.Invoke(values);
-                }
+                var values = Protocol.ParseFrame(line);
+                if (values is not null)
+                    ValuesReceived?.Invoke(values);
             }
         }
-        catch (Exception)
+        catch (Exception ex)
         {
-            // Failed to open port
+            System.Diagnostics.Debug.WriteLine(
+                $"[SerialReader] {_port}: fatal — {ex.GetType().Name}: {ex.Message}");
         }
         finally
         {
-            try { _sp?.Close(); _sp?.Dispose(); } catch { /* ignore */ }
-            _sp      = null;
+            try { _sp.Close(); _sp.Dispose(); } catch { /* ignore */ }
             _running = false;
             Disconnected?.Invoke();
         }

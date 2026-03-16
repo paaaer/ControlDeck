@@ -24,7 +24,7 @@ public sealed class DeviceManager : IDisposable
 
     // Prevents overlapping probe runs when the reconnect timer fires faster
     // than a full multi-baud scan completes.
-    private volatile bool   _probing;
+    private volatile bool _probing;
 
     // Cached from the last successful connection — lets reconnects skip the
     // full baud-rate scan and go straight to the known-good port + baud.
@@ -53,7 +53,6 @@ public sealed class DeviceManager : IDisposable
     public void UpdateConfig(AppConfig cfg)
     {
         _cfg = cfg;
-        // If port setting changed, force reconnect
         Stop();
         Start();
     }
@@ -72,13 +71,12 @@ public sealed class DeviceManager : IDisposable
 
     private void TryConnect()
     {
-        // Drop overlapping calls — a slow multi-baud scan must not race itself.
         if (_probing) return;
         _probing = true;
         try
         {
-            // Stop any existing reader and wait for its thread to fully exit so
-            // the COM port is released before ProbePort tries to open it.
+            // Grab and stop any existing reader, waiting for its thread to fully
+            // exit so the COM port is released before we probe again.
             SerialReader? oldReader;
             lock (_lock)
             {
@@ -86,39 +84,32 @@ public sealed class DeviceManager : IDisposable
                 oldReader = _reader;
                 _reader   = null;
             }
-            oldReader?.StopAndWait();   // blocks until background thread exits (≤1.5 s)
+            oldReader?.StopAndWait();
             oldReader?.Dispose();
 
             var portCfg = _cfg.Device.Port;
 
-            // Fast path: if we've connected before, try that exact port+baud
-            // first.  Reconnects after a USB unplug are usually instant this way.
-            Handshake? hs = null;
+            // Fast path: try last known port+baud first so reconnects after a
+            // USB unplug are nearly instant.
+            OpenConnection? conn = null;
             if (_lastPort is not null && _lastBaud > 0)
-                hs = Detector.ProbePort(_lastPort, _lastBaud);
+                conn = Detector.OpenPort(_lastPort, _lastBaud);
 
-            // Full scan if the fast path missed (first run, or device moved port)
-            if (hs is null)
-            {
-                hs = portCfg == "auto"
-                    ? Detector.AutoDetect(_cfg.Device.Baud)
-                    : Detector.ProbePort(portCfg, _cfg.Device.Baud);
-            }
+            // Full scan if fast path missed (first run or device changed port)
+            conn ??= portCfg == "auto"
+                ? Detector.AutoDetect(_cfg.Device.Baud)
+                : Detector.OpenPort(portCfg, _cfg.Device.Baud);
 
-            if (hs is null) return;
+            if (conn is null) return;
 
-            _lastPort = hs.Port;
-            _lastBaud = hs.Baud;
+            _lastPort = conn.Handshake.Port;
+            _lastBaud = conn.Handshake.Baud;
 
-            // Give the OS/driver a moment to fully release the COM port after
-            // the probe closed it.  Without this, some USB-serial drivers briefly
-            // re-assert DTR on the next Open() even when DtrEnable=false, which
-            // can trigger the ESP32 auto-reset circuit.
-            System.Threading.Thread.Sleep(150);
-
+            // Hand the already-open connection to SerialReader — the port is
+            // never closed and reopened, so no DTR glitch can reset the device.
             lock (_lock)
             {
-                var reader = new SerialReader(hs.Port, hs.Baud);
+                var reader = new SerialReader(conn);   // takes ownership of conn
                 reader.Connected      += OnConnected;
                 reader.ValuesReceived += OnValues;
                 reader.Disconnected   += OnDisconnected;
@@ -140,7 +131,7 @@ public sealed class DeviceManager : IDisposable
             r       = _reader;
             _reader = null;
         }
-        r?.Stop();
+        r?.StopAndWait();
         r?.Dispose();
     }
 
